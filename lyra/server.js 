@@ -1,0 +1,49 @@
+// server.js
+const express = require('express');
+const fetch = require('node-fetch');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+
+const app = express();
+const PORT = 3000;
+
+// 🔑 Put your Gemini API key here
+const API_KEY = "AIzaSyAL4hKwuSKyEcU6XryUzb5K-hSDLSaeKaY";
+app.use(cors());
+app.use(bodyParser.json());
+
+app.post('/api/chat', async (req, res) => {
+    try {
+        const userMessage = req.body.message;
+
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateMessage?key=${API_KEY}`;
+
+        const payload = {
+            messages: [
+                { role: "SYSTEM", content: { text: "You are Lyra, a friendly and helpful AI assistant. Always answer clearly and supportively." } },
+                { role: "USER", content: { text: userMessage } }
+            ],
+            temperature: 0.7,
+            candidateCount: 1
+        };
+
+        const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        const lyraResponse = data?.candidates?.[0]?.content?.[0]?.text || "Sorry, I couldn't generate a response.";
+
+        res.json({ reply: lyraResponse });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ reply: "Error generating response." });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});

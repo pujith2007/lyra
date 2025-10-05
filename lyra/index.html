@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lyra - 3D AI Assistant</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+    body { font-family: 'Inter', sans-serif; background-color: #111827; color: #F9FAFB; overflow: hidden; }
+    #chat-container::-webkit-scrollbar { width: 4px; }
+    #chat-container::-webkit-scrollbar-thumb { background-color: #4B5563; border-radius: 20px; }
+    .user-message { background-color: #374151; align-self: flex-end; }
+    .lyra-message { background-color: #1F2937; align-self: flex-start; }
+    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    #three-canvas { cursor: grab; }
+    #three-canvas:active { cursor: grabbing; }
+    .recording { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); } }
+</style>
+</head>
+<body class="flex flex-col md:flex-row h-screen">
+
+<!-- 3D Canvas -->
+<div id="canvas-container" class="w-full md:w-1/2 h-1/2 md:h-full relative">
+    <canvas id="three-canvas"></canvas>
+    <div class="absolute top-4 left-4 text-white">
+        <h1 class="text-4xl font-bold">Lyra</h1>
+        <p class="text-lg text-gray-300">Your 3D AI Companion</p>
+    </div>
+</div>
+
+<!-- Chat Interface -->
+<div class="w-full md:w-1/2 h-1/2 md:h-full bg-gray-900 flex flex-col p-4 md:p-6">
+    <div id="chat-container" class="flex-1 overflow-y-auto mb-4 p-2 rounded-lg bg-gray-800">
+        <div class="lyra-message p-3 rounded-lg max-w-xs md:max-w-md mb-2">
+            <p class="text-sm">Hello! I'm Lyra. How can I help you today?</p>
+        </div>
+    </div>
+    <div id="loading-indicator" class="hidden"><div class="loader"></div></div>
+    <div class="flex">
+        <input type="text" id="chat-input" class="flex-1 bg-gray-700 text-white rounded-l-lg p-3 focus:outline-none" placeholder="Ask Lyra anything...">
+        <button id="send-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-r-lg">Send</button>
+    </div>
+</div>
+
+<script type="module">
+    // --- THREE.JS 3D Model ---
+    let scene, camera, renderer, model, controls, mixer, clock, actions, activeAction;
+    const canvasContainer = document.getElementById('canvas-container');
+    const canvas = document.getElementById('three-canvas');
+
+    function initThree() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(75, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+        renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+
+        clock = new THREE.Clock();
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.minDistance = 3;
+        controls.maxDistance = 10;
+        controls.target.set(0, 1, 0);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        const loader = new THREE.GLTFLoader();
+        loader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/models/gltf/RobotExpressive/RobotExpressive.glb', function(gltf){
+            model = gltf.scene; model.scale.set(0.4,0.4,0.4); model.position.y=-1; scene.add(model);
+            mixer = new THREE.AnimationMixer(model); actions = {};
+            gltf.animations.forEach((clip)=>{ actions[clip.name]=mixer.clipAction(clip); });
+            activeAction = actions['Idle']; if(activeAction) activeAction.play();
+        });
+
+        camera.position.set(0, 1.5, 4);
+        controls.update();
+        animate();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        if(mixer) mixer.update(delta);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+    });
+
+    initThree();
+
+    // --- Chat Frontend ---
+    const chatContainer = document.getElementById('chat-container');
+    const chatInput = document.getElementById('chat-input');
+    const sendButton = document.getElementById('send-button');
+    const loadingIndicator = document.getElementById('loading-indicator');
+
+    sendButton.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', e => { if(e.key==='Enter') sendMessage(); });
+
+    async function sendMessage() {
+        const messageText = chatInput.value.trim();
+        if(!messageText) return;
+        addMessage(messageText,'user'); chatInput.value=''; loadingIndicator.style.display='block';
+
+        try {
+            const response = await fetch('http://localhost:3000/api/chat', {
+                method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: messageText})
+            });
+            const data = await response.json();
+            addMessage(data.reply,'lyra');
+        } catch(e) {
+            console.error(e);
+            addMessage("Oops! Something went wrong.",'lyra');
+        } finally { loadingIndicator.style.display='none'; }
+    }
+
+    function addMessage(text,sender){
+        const msg = document.createElement('div');
+        msg.classList.add('p-3','rounded-lg','max-w-xs','md:max-w-md','mb-2','break-words', sender==='user'?'user-message':'lyra-message');
+        const p = document.createElement('p'); p.classList.add('text-sm'); p.textContent=text;
+        msg.appendChild(p); chatContainer.appendChild(msg);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+</script>
+</body>
+</html>
